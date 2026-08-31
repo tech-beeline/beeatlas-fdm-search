@@ -1,93 +1,299 @@
 # fdm-search
 
+Сервис семантического поиска технических возможностей (Tech Capability) для платформы EA FDM Mart.
 
+Индексирует сущности в [Qdrant](https://qdrant.tech/), синхронизирует данные через RabbitMQ и отдаёт HTTP API для поиска по смыслу. Эмбеддинги и обогащение (синонимы / действия) выполняются через корпоративный API Beeline.
 
-## Getting started
+## Возможности
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+- **Семантический поиск** — векторы через OpenAI-compatible API Beeline (`text-embedding-3-small`)
+- **Точный поиск по `code`** и фильтр **`exclude_systems`**
+- **Синхронизация** — события `CREATE` / `UPDATE` / `DELETE` из RabbitMQ
+- **Интеграция с Capability** — при CREATE/UPDATE данные TC подтягиваются по ID
+- **Обогащение LLM** — при создании и изменении name/description генерируются `synonyms` (3–5) и `actions` (2–4)
+- **Автоинициализация Qdrant** — коллекция `tech_capability` создаётся при старте, если её нет
+- **Swagger** — `/docs`, метрики Prometheus — `/actuator/prometheus`
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
+## Архитектура
 
 ```
-cd existing_repo
-git remote add origin https://git.vimpelcom.ru/products/eafdmmart/fdm-search.git
-git branch -M main
-git push -uf origin main
+┌─────────────┐     CREATE/UPDATE/DELETE      ┌──────────────┐
+│  RabbitMQ   │ ────────────────────────────► │  fdm-search  │
+└─────────────┘                               │  (FastAPI)   │
+                                              └──────┬───────┘
+┌─────────────┐     GET TC by id               │      │
+│ Capability  │ ◄──────────────────────────────┘      │
+│   service   │                                       │
+└─────────────┘                                       ▼
+                                            ┌──────────────────┐
+                                            │  Beeline AI API  │
+                                            │  • embeddings    │
+                                            │  • chat (LLM)    │
+                                            └────────┬─────────┘
+                                                     │
+                                                     ▼
+                                            ┌──────────────┐
+                                            │    Qdrant    │
+                                            │ tech_capability
+                                            └──────────────┘
 ```
 
-## Integrate with your tools
+При старте:
 
-- [ ] [Set up project integrations](https://git.vimpelcom.ru/products/eafdmmart/fdm-search/-/settings/integrations)
+1. Подключение к Qdrant, создание коллекции `tech_capability` (`size=VECTOR_SIZE`, Cosine)
+2. Создание payload-индексов (`internal_id`, `code`, `system_alias_lower`, `system_name_lower`)
+3. Подключение к RabbitMQ (SSO-токен)
+4. Прослушивание `TECH_CAPABILITY_QUEUE`
 
-## Collaborate with your team
+### Обработка сообщений
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+| `changeType` | Действие |
+|--------------|----------|
+| `CREATE` | Capability → LLM (synonyms/actions) → embedding → запись в Qdrant |
+| `UPDATE` | Обновление payload; LLM и пересчёт вектора — только если изменились `name` или `description` |
+| `DELETE` | Удаление по `internal_id` |
 
-## Test and Deploy
+Текст для embedding: `name` + `description` + `synonyms` + `actions` (одна сущность = один вектор, без чанков).
 
-Use the built-in continuous integration in GitLab.
+Эмбеддинги и LLM — **разные** API Beeline (v2 embeddings / v3 chat). Локальный ONNX и токенизатор не используются.
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+## Стек
 
-***
+| Компонент | Технология |
+|-----------|------------|
+| HTTP API | FastAPI, Uvicorn |
+| Векторная БД | Qdrant (`qdrant-client`) |
+| Очередь | RabbitMQ (`aio-pika`) |
+| Эмбеддинги | OpenAI SDK → Beeline (`openai`) |
+| LLM | httpx → Beeline chat completions |
+| Метрики | `prometheus-fastapi-instrumentator` |
+| Python | 3.12 |
 
-# Editing this README
+## Структура проекта
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+```
+fdm-search/
+├── app/
+│   ├── main.py                      # Точка входа, lifespan, Prometheus
+│   ├── routes/routes.py             # HTTP API
+│   ├── services/
+│   │   ├── message_service.py       # CRUD, поиск, вызов LLM
+│   │   └── tc_payload.py            # system-поля, текст для embedding
+│   ├── repositories/
+│   │   ├── base.py                  # Qdrant, поиск, авто-создание коллекции
+│   │   └── tech_capability.py
+│   ├── consumers/rabbitmq_consumer.py
+│   ├── clients/
+│   │   ├── embedding_client.py      # Beeline Embeddings
+│   │   ├── llm_client.py            # Beeline LLM (synonyms/actions)
+│   │   ├── auth_sso_client.py
+│   │   └── capability_client.py
+│   ├── models/schemas.py
+│   └── core/
+│       ├── config.py                # Settings из .env / .env.local
+│       └── logging.py
+├── scripts/
+│   └── bulk_publish_tc.py           # Разовая заливка CREATE в очередь
+├── Dockerfile
+├── requirements.txt
+└── pyproject.toml
+```
 
-## Suggestions for a good README
+## API
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+По умолчанию: `http://localhost:8080`  
+Локально (`.env.local`): часто `http://127.0.0.1:8002`
 
-## Name
-Choose a self-explaining name for your project.
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/health` | Healthcheck |
+| `GET` | `/versions` | Версии зависимостей |
+| `GET` | `/actuator/prometheus` | Метрики |
+| `GET` | `/docs` | Swagger UI |
+| `GET` | `/documents` | Все документы |
+| `GET` | `/search` | Поиск (см. ниже) |
+| `GET` | `/search/{internal_id}` | Документ по `internal_id` |
+| `DELETE` | `/documents` | Удалить все |
+| `DELETE` | `/document/internal_id/{id}` | Удалить по `internal_id` |
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+### `GET /search`
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+Нужен **`query`** или **`code`**.
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+| Параметр | Описание |
+|----------|----------|
+| `query` | Семантический поиск |
+| `code` | Точное совпадение по полю `code` |
+| `exclude_systems` | Исключить системы по `system_alias` или `system_name` (через запятую) |
+| `limit` | Число результатов для semantic (1–100, по умолчанию 10) |
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+```bash
+# Семантика
+curl "http://127.0.0.1:8002/search?query=цветовая%20маркировка&limit=5"
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+# С исключением системы
+curl "http://127.0.0.1:8002/search?query=маркировка&exclude_systems=MySystem&limit=10"
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+# Точный code
+curl "http://127.0.0.1:8002/search?code=BC-041968"
+```
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+Пример ответа:
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+```json
+{
+  "query": "цветовая маркировка",
+  "code": null,
+  "exclude_systems": null,
+  "limit": 5,
+  "found": 2,
+  "results": [
+    {
+      "id": "uuid",
+      "score": 0.87,
+      "payload": {
+        "entity_type": "tech_capability",
+        "internal_id": "46712",
+        "name": "Цветовая маркировка критичных ресурсов",
+        "description": "...",
+        "code": "BC-041968",
+        "synonyms": ["цветовая индикация", "метки бизнес-критичности"],
+        "actions": ["Фильтровать ресурсы по цветовой метке"],
+        "system_id": 1,
+        "system_name": "...",
+        "system_alias": "..."
+      }
+    }
+  ]
+}
+```
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+## Переменные окружения
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+Приоритет: `app/.env.local` (если есть) → корневой `.env` → переменные окружения процесса.
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+Пример для локалки: скопировать `app/.env.local.example` → `app/.env.local`.
 
-## License
-For open source projects, say how it is licensed.
+| Переменная | Обязательная | Описание |
+|------------|:------------:|----------|
+| `HOST` | нет | Хост (по умолчанию `0.0.0.0`) |
+| `PORT` | нет | Порт (по умолчанию `8080`) |
+| `RELOAD` | нет | Hot-reload Uvicorn |
+| `QDRANT_URL` | да | URL Qdrant |
+| `QDRANT_API_KEY` | нет | API-ключ Qdrant |
+| `OPENAI_API_KEY` | да | Общий ключ Beeline: embeddings и LLM |
+| `OPENAI_BASE_URL` | да | Базовый URL embeddings, например `https://api.ai.beeline.ru/api/v2` |
+| `OPENAI_EMBEDDING_MODEL` | да | Модель эмбеддингов, например `text-embedding-3-small` |
+| `VECTOR_SIZE` | нет | Размерность вектора (по умолчанию `1536`) |
+| `LLM_API_URL` | да | URL chat API, например `https://api.ai.beeline.ru/api/v3/chat/completions` |
+| `LLM_MODEL` | нет | Модель LLM (по умолчанию `llm-xlarge-moe-instruct`) |
+| `RABBITMQ_HOST` | да | Хост RabbitMQ |
+| `RABBITMQ_VIRTUAL_HOST` | да | Virtual host |
+| `TECH_CAPABILITY_QUEUE` | да | Очередь |
+| `RABBITMQ_EXCHANGE` | да | Exchange |
+| `RABBITMQ_ROUTING_KEY` | да | Routing key |
+| `INTEGRATION_AUTHSSO_SERVER_URL` | да | URL SSO-токена для RabbitMQ |
+| `INTEGRATION_CAPABILITY_SERVER_URL` | да | Базовый URL Capability |
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+### Сообщение RabbitMQ
+
+```json
+{
+  "id": 46712,
+  "changeType": "CREATE",
+  "name": "Цветовая маркировка критичных ресурсов",
+  "source": "capability"
+}
+```
+
+`id` и `changeType` обязательны. `changeType`: `CREATE` | `UPDATE` | `DELETE`.
+
+Описание и code в очередь не передаются — сервис загружает TC из Capability по `id`.
+
+## Запуск
+
+### Требования
+
+- Python 3.12
+- Qdrant, RabbitMQ, Capability, SSO
+- Ключ Beeline: `OPENAI_API_KEY` (embeddings + LLM)
+
+### Установка
+
+```bash
+python -m venv venv
+venv\Scripts\activate        # Windows
+# source venv/bin/activate   # Linux / macOS
+
+pip install -r requirements.txt
+```
+
+### Старт
+
+```bash
+set PYTHONPATH=.
+python app/main.py
+```
+
+- API: `http://localhost:8080` (или порт из env)
+- Swagger: `http://localhost:8080/docs`
+
+Коллекция `tech_capability` создаётся автоматически на пустом Qdrant.
+
+### Разовая заливка в очередь
+
+Скрипт `scripts/bulk_publish_tc.py` публикует `CREATE` из Capability в RabbitMQ (настройки стенда задаются в самом скрипте):
+
+```bash
+python scripts/bulk_publish_tc.py --dry-run --max-pages 1
+python scripts/bulk_publish_tc.py --delay 2
+```
+
+## Docker
+
+```bash
+docker build -t fdm-search .
+docker run -p 8080:8080 \
+  -e QDRANT_URL=http://qdrant:6333 \
+  -e OPENAI_API_KEY=your-beeline-api-key \
+  -e OPENAI_BASE_URL=https://api.ai.beeline.ru/api/v2 \
+  -e OPENAI_EMBEDDING_MODEL=text-embedding-3-small \
+  -e LLM_API_URL=https://api.ai.beeline.ru/api/v3/chat/completions \
+  -e LLM_MODEL=llm-xlarge-moe-instruct \
+  -e RABBITMQ_HOST=rabbitmq \
+  -e RABBITMQ_VIRTUAL_HOST=dev_host \
+  -e TECH_CAPABILITY_QUEUE=qdrant_tc \
+  -e RABBITMQ_EXCHANGE=adv-exchange \
+  -e RABBITMQ_ROUTING_KEY=adv-routing \
+  -e INTEGRATION_AUTHSSO_SERVER_URL=https://sso.example.com/rabbit-token \
+  -e INTEGRATION_CAPABILITY_SERVER_URL=http://capability:8085 \
+  fdm-search
+```
+
+## Схема данных в Qdrant
+
+Коллекция: `tech_capability`  
+Параметры: `size=VECTOR_SIZE` (обычно 1536), `distance=Cosine`
+
+| Поле | Описание |
+|------|----------|
+| `entity_type` | `tech_capability` |
+| `internal_id` | ID из Capability (строка) |
+| `name` / `name_lower` | Название |
+| `description` | Описание |
+| `code` | Код TC |
+| `synonyms` | Массив строк (LLM) |
+| `actions` | Массив строк (LLM) |
+| `system_id` / `system_name` / `system_alias` | Система |
+| `system_name_lower` / `system_alias_lower` | Для фильтра `exclude_systems` |
+| `created_at` / `updated_date` | Даты ISO 8601 |
+
+### Миграция со старой размерности (1024 → 1536)
+
+Если коллекция создана под другую `VECTOR_SIZE`, удалите её и дайте сервису создать заново, затем переиндексируйте данные. Существующая коллекция с другим размером вектора не пересоздаётся автоматически.
+
+## Репозиторий
+
+```text
+https://git.vimpelcom.ru/products/eafdmmart/fdm-search
+```

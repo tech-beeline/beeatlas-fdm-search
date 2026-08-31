@@ -1,0 +1,13 @@
+requests
+fastapi==0.116.1
+uvicorn==0.35.0
+qdrant-client==1.9.0
+aio-pika==9.2.0
+pydantic-settings==2.2.1
+aiohttp>=3.8.0
+pyjwt>=2.0.0
+python-dotenv==1.0.0
+python-multipart==0.0.20
+loguru==0.7.2
+prometheus-fastapi-instrumentator>=5.10.0
+openai>=1.0.0
