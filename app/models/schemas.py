@@ -1,3 +1,5 @@
+# Copyright (c) 2024 PJSC VimpelCom
+
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 

@@ -1,3 +1,5 @@
+# Copyright (c) 2024 PJSC VimpelCom
+
 from .base import BaseQdrantRepository
 
 class TechCapabilityRepository(BaseQdrantRepository):

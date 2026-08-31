@@ -1,3 +1,5 @@
+# Copyright (c) 2024 PJSC VimpelCom
+
 import logging
 import uuid
 from typing import Any, Dict, List, Optional
@@ -372,6 +374,7 @@ class BaseQdrantRepository:
                 query_vector=query_vector,
                 query_filter=query_filter,
                 limit=limit,
+                score_threshold=settings.SEARCH_MIN_SCORE,
                 with_payload=True,
                 with_vectors=False
             )

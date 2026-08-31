@@ -1,3 +1,5 @@
+# Copyright (c) 2024 PJSC VimpelCom
+
 import logging
 import sys
 from importlib.metadata import version

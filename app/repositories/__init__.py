@@ -1,3 +1,5 @@
+# Copyright (c) 2024 PJSC VimpelCom
+
 from .business_capability import bc_repository
 from .documentation import docs_repository
 from .tech_capability import tc_repository

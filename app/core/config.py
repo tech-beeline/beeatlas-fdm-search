@@ -1,3 +1,5 @@
+# Copyright (c) 2024 PJSC VimpelCom
+
 from pydantic_settings import BaseSettings
 from pathlib import Path
 
@@ -41,5 +43,7 @@ class Settings(BaseSettings):
     DOC_CHUNK_SIZE: int
     DOC_CHUNK_OVERLAP: int
     DOC_SERVICE_URL: str
+
+    SEARCH_MIN_SCORE: float
 
 settings = Settings(_env_file=_env_file, _env_file_encoding='utf-8')
