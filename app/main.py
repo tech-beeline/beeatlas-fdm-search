@@ -1,3 +1,5 @@
+# Copyright (c) 2024 PJSC VimpelCom
+
 from contextlib import asynccontextmanager
 import logging
 from app.repositories.business_capability import bc_repository

@@ -1,3 +1,5 @@
+# Copyright (c) 2024 PJSC VimpelCom
+
 import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional

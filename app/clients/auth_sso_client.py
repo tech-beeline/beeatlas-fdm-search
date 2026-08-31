@@ -1,3 +1,5 @@
+# Copyright (c) 2024 PJSC VimpelCom
+
 import logging
 import time
 from typing import Optional

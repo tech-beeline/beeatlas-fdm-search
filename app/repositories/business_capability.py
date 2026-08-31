@@ -1,3 +1,5 @@
+# Copyright (c) 2024 PJSC VimpelCom
+
 from qdrant_client.models import PayloadSchemaType
 
 from .base import BaseQdrantRepository

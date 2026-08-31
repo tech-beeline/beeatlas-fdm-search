@@ -1,3 +1,5 @@
+# Copyright (c) 2024 PJSC VimpelCom
+
 from __future__ import annotations
 
 from typing import Any
