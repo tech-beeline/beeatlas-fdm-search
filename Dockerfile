@@ -14,7 +14,7 @@ RUN adduser \
     appuser
 COPY app /apphome/app
 COPY requirements.txt /apphome/
-COPY certs/*.crt /usr/local/share/ca-certificates
+COPY --chmod=644 certs/* /usr/local/share/ca-certificates/
 RUN update-ca-certificates
 ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
@@ -32,7 +32,6 @@ EXPOSE 8080
 
 ENV HOST='0.0.0.0'
 ENV PORT=8080
-ENV APP_VERSION='0.9.0'
 ENV PROJECT_NAME=fdm-search
 ENV OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 ENV VECTOR_SIZE=1536
