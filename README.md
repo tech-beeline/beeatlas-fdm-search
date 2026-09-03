@@ -51,7 +51,7 @@
 
 1. Подключение к Qdrant, создание коллекций `tech_capability`, `business_capability`, `user_documentation`
 2. Создание payload-индексов для фильтров и поиска
-3. Подключение к RabbitMQ (SSO-токен), два consumer: TC и BC
+3. Подключение к RabbitMQ (SSO-токен ambassador или логин/пароль по `APP_AMBASSADOR_AUTH`), два consumer: TC и BC
 4. Прослушивание очередей `TECH_CAPABILITY_QUEUE` и `BUSINESS_CAPABILITY_QUEUE`
 
 ### Обработка сообщений RabbitMQ
@@ -206,13 +206,16 @@ curl -X POST "http://127.0.0.1:8002/api/v1/docs/reindex" \
 | `VECTOR_SIZE` | нет | Размерность вектора (по умолчанию `1536`) |
 | `LLM_API_URL` | да | URL chat API |
 | `LLM_MODEL` | да | Модель LLM |
-| `RABBITMQ_HOST` | да | Хост RabbitMQ |
-| `RABBITMQ_VIRTUAL_HOST` | да | Virtual host |
+| `SPRING_RABBITMQ_HOST` | да | Хост RabbitMQ |
+| `SPRING_RABBITMQ_VIRTUAL_HOST` | да | Virtual host |
+| `SPRING_RABBITMQ_USERNAME` | нет | Логин RabbitMQ (нужен при `APP_AMBASSADOR_AUTH=false`) |
+| `SPRING_RABBITMQ_PASSWORD` | нет | Пароль RabbitMQ (нужен при `APP_AMBASSADOR_AUTH=false`) |
 | `TECH_CAPABILITY_QUEUE` | да | Очередь TC |
 | `BUSINESS_CAPABILITY_QUEUE` | да | Очередь BC |
 | `RABBITMQ_EXCHANGE` | да | Exchange |
 | `RABBITMQ_ROUTING_KEY` | да | Routing key |
-| `INTEGRATION_AUTHSSO_SERVER_URL` | да | URL SSO-токена для RabbitMQ |
+| `APP_AMBASSADOR_AUTH` | нет | `true` (по умолчанию) — токен SSO; `false` — логин/пароль |
+| `INTEGRATION_AUTHSSO_SERVER_URL` | нет | URL SSO-токена для RabbitMQ (обязателен при `APP_AMBASSADOR_AUTH=true`) |
 | `INTEGRATION_CAPABILITY_SERVER_URL` | да | Базовый URL Capability |
 | `DOC_SERVICE_URL` | да | Базовый URL портала документации (для `source_url` в Qdrant) |
 | `DOC_CHUNK_SIZE` | да | Размер чанка документации |
@@ -239,7 +242,8 @@ curl -X POST "http://127.0.0.1:8002/api/v1/docs/reindex" \
 ### Требования
 
 - Python 3.12
-- Qdrant, RabbitMQ, Capability-сервис, SSO
+- Qdrant, RabbitMQ, Capability-сервис
+- SSO (`INTEGRATION_AUTHSSO_SERVER_URL`), если `APP_AMBASSADOR_AUTH=true`
 - API-ключ для embeddings и LLM (`OPENAI_API_KEY`)
 
 ### Установка
@@ -275,8 +279,9 @@ docker run -p 8080:8080 \
   -e OPENAI_EMBEDDING_MODEL=text-embedding-3-small \
   -e LLM_API_URL=https://api.example.com/v1/chat/completions \
   -e LLM_MODEL=your-llm-model \
-  -e RABBITMQ_HOST=rabbitmq \
-  -e RABBITMQ_VIRTUAL_HOST=dev_host \
+  -e SPRING_RABBITMQ_HOST=rabbitmq \
+  -e SPRING_RABBITMQ_VIRTUAL_HOST=dev_host \
+  -e APP_AMBASSADOR_AUTH=true \
   -e TECH_CAPABILITY_QUEUE=qdrant_tc \
   -e BUSINESS_CAPABILITY_QUEUE=qdrant_bc \
   -e RABBITMQ_EXCHANGE=adv-exchange \

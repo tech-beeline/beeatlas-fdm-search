@@ -5,10 +5,10 @@ import json
 import logging
 
 import aio_pika
-from app.clients.auth_sso_client import AuthSSOClient
 from app.clients.capability_client import capability_client
 from app.clients.llm_client import LlmEnrichmentError
 from app.core.config import settings
+from app.core.rabbitmq import build_amqp_url, create_auth_sso_client
 from app.models.schemas import RabbitMQMessage
 from app.services.message_service import message_service
 
@@ -19,7 +19,7 @@ RECONNECT_DELAY_SEC = 5
 
 class TcConsumer:
     def __init__(self):
-        self.auth_client = AuthSSOClient(settings.INTEGRATION_AUTHSSO_SERVER_URL)
+        self.auth_client = create_auth_sso_client()
         self.connection = None
         self.channel = None
         self._reconnect_lock = asyncio.Lock()
@@ -27,14 +27,11 @@ class TcConsumer:
 
     async def connect(self):
         await self._establish()
-        logger.info("RabbitMQ consumer: prefetch_count=1, auto-reconnect с новым SSO-токеном")
+        auth_mode = "ambassador (SSO token)" if settings.APP_AMBASSADOR_AUTH else "username/password"
+        logger.info("RabbitMQ consumer: prefetch_count=1, auto-reconnect, auth=%s", auth_mode)
 
     async def _rabbitmq_url(self) -> str:
-        token = await self.auth_client.get_token(force_refresh=True)
-        return (
-            f"amqp://:{token}@{settings.RABBITMQ_HOST}/"
-            f"{settings.RABBITMQ_VIRTUAL_HOST}"
-        )
+        return await build_amqp_url(self.auth_client)
 
     async def _establish(self):
         if self.connection is not None and not self.connection.is_closed:
@@ -68,10 +65,7 @@ class TcConsumer:
     def _on_connection_close(self, *args, **kwargs):
         if self._closed:
             return
-        logger.warning(
-            "RabbitMQ соединение закрыто, "
-            "переподключение с новым токеном..."
-        )
+        logger.warning("RabbitMQ соединение закрыто, переподключение...")
         asyncio.create_task(self._reconnect())
 
     async def _reconnect(self):
