@@ -210,11 +210,12 @@ class DocIndexService:
 
         points: list[PointStruct] = []
         for idx, text in enumerate(chunks):
-            vector = await embedding_client.embed_text_async(text)
+            dense_vec = await embedding_client.embed_text_async(text)
+            bm25_text = f"{title}\n{text}".strip() if title else text
             points.append(
                 PointStruct(
                     id=point_id(doc_path, idx),
-                    vector=vector,
+                    vector=docs_repository.build_chunk_vectors(dense_vec, bm25_text),
                     payload={
                         "data": text,
                         "text": text,
