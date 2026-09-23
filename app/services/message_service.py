@@ -164,12 +164,22 @@ class MessageService:
             content_changed = name_changed or description_changed
             needs_llm = content_changed or not (existing_payload.get("synonyms") and existing_payload.get("actions"))
 
+            system_fields = extract_system_fields(tc_data)
+            code_value = tc_data.get("code") or ""
+            code_changed = code_value != (existing_payload.get("code") or "")
+            system_changed = (
+                system_fields.get("system_name") != existing_payload.get("system_name")
+                or system_fields.get("system_alias") != existing_payload.get("system_alias")
+            )
+            # BM25 зависит от code/system; dense — от name/desc/synonyms/actions
+            regenerate_vector = needs_llm or code_changed or system_changed
+
             updated_data: dict[str, Any] = {
                 "name": name,
                 "name_lower": name.lower() if name else "",
                 "description": description,
-                "code": tc_data.get("code") or "",
-                **extract_system_fields(tc_data),
+                "code": code_value,
+                **system_fields,
                 **extract_parent_fields(tc_data),
                 "updated_date": datetime.now().isoformat(),
             }
@@ -185,7 +195,7 @@ class MessageService:
                 logger.info(
                     "Обновление: internal_id=%s code=%s — synonyms/actions пересобраны",
                     internal_id,
-                    tc_data.get("code") or "",
+                    code_value,
                     )
             else:
                 logger.info(
@@ -197,7 +207,7 @@ class MessageService:
             success = await self.repository.update_document_by_internal_id(
                 internal_id=internal_id,
                 updated_data=updated_data,
-                regenerate_vector=needs_llm,
+                regenerate_vector=regenerate_vector,
             )
             if success:
                 logger.info(f"✅ Обновлен существующий документ: {message.id}")

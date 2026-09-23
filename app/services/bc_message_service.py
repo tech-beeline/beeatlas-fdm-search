@@ -160,11 +160,15 @@ class BcMessageService:
                     existing_payload.get("synonyms") and existing_payload.get("actions")
             )
 
+            code_value = bc_data.get("code") or ""
+            code_changed = code_value != (existing_payload.get("code") or "")
+            regenerate_vector = needs_llm or code_changed
+
             updated_data: dict[str, Any] = {
                 "name": name,
                 "name_lower": name.lower() if name else "",
                 "description": description,
-                "code": bc_data.get("code") or "",
+                "code": code_value,
                 **extract_bc_fields(bc_data),
                 "updated_date": datetime.now().isoformat(),
             }
@@ -190,7 +194,7 @@ class BcMessageService:
             success = await self.repository.update_document_by_internal_id(
                 internal_id=internal_id,
                 updated_data=updated_data,
-                regenerate_vector=needs_llm,
+                regenerate_vector=regenerate_vector,
             )
             if success:
                 logger.info(f"✅ Обновлён BC: {message.id}")

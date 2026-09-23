@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     DOC_CHUNK_OVERLAP: int
     DOC_SERVICE_URL: str
 
+    # Cosine threshold только для dense-prefetch (не для RRF score)
     SEARCH_MIN_SCORE: float
+    # Сколько кандидатов брать из каждого retriever до fusion
+    HYBRID_PREFETCH_LIMIT: int = 50
+    # Макс. длина очищенного description в dense-тексте
+    DENSE_DESC_MAX_CHARS: int = 500
 
 settings = Settings(_env_file=_env_file, _env_file_encoding='utf-8')
