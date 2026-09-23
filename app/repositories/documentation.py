@@ -25,7 +25,8 @@ DOC_COLLECTION_NAME = "user_documentation"
 class DocumentationRepository(BaseQdrantRepository):
 
     def __init__(self, collection_name: str = DOC_COLLECTION_NAME):
-        super().__init__(collection_name=collection_name)
+        # Документация остаётся plain dense (без BM25 hybrid)
+        super().__init__(collection_name=collection_name, hybrid=False)
 
     async def _ensure_payload_indexes(self):
         for field_name in ("path", "source_path", "doc_type", "chunk_id"):
