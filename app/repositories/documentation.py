@@ -15,7 +15,11 @@ from qdrant_client.models import (
     PointStruct,
 )
 
-from app.repositories.base import BaseQdrantRepository
+from app.repositories.base import (
+    BM25_VECTOR_NAME,
+    DENSE_VECTOR_NAME,
+    BaseQdrantRepository,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +29,7 @@ DOC_COLLECTION_NAME = "user_documentation"
 class DocumentationRepository(BaseQdrantRepository):
 
     def __init__(self, collection_name: str = DOC_COLLECTION_NAME):
-        # Документация остаётся plain dense (без BM25 hybrid)
-        super().__init__(collection_name=collection_name, hybrid=False)
+        super().__init__(collection_name=collection_name, hybrid=True)
 
     async def _ensure_payload_indexes(self):
         for field_name in ("path", "source_path", "doc_type", "chunk_id"):
@@ -42,6 +45,13 @@ class DocumentationRepository(BaseQdrantRepository):
     @staticmethod
     def point_id(doc_path: str, chunk_index: int) -> str:
         return str(uuid.uuid5(uuid.NAMESPACE_URL, f"{doc_path}#{chunk_index}"))
+
+    def build_chunk_vectors(self, dense_vec: list[float], bm25_text: str) -> dict[str, Any]:
+        text = (bm25_text or "").strip() or " "
+        return {
+            DENSE_VECTOR_NAME: dense_vec,
+            BM25_VECTOR_NAME: self._bm25_document(text),
+        }
 
     async def recreate_collection(self) -> None:
         if await self.client.collection_exists(self.collection_name):
@@ -76,45 +86,43 @@ class DocumentationRepository(BaseQdrantRepository):
         return len(points)
 
     async def search_docs(
-        self,
-        query: str,
-        limit: int = 5,
+            self,
+            query: str,
+            limit: int = 5,
     ) -> list[dict[str, Any]]:
         try:
-            query_vector = await self._generate_vector_from_text(query)
-            search_results = await self.client.search(
-                collection_name=self.collection_name,
-                query_vector=query_vector,
+            scored = await self._hybrid_search(
+                query=query,
+                query_filter=None,
                 limit=limit,
-                with_payload=True,
-                with_vectors=False,
+                apply_dense_score_threshold=False,
             )
             results: list[dict[str, Any]] = []
-            for item in search_results:
-                payload = item.payload or {}
+            for item in scored:
+                payload = item.get("payload") or {}
                 meta = payload.get("metadata") or {}
                 text = (
-                    payload.get("data")
-                    or payload.get("content")
-                    or payload.get("text")
-                    or payload.get("pageContent")
+                        payload.get("data")
+                        or payload.get("content")
+                        or payload.get("text")
+                        or payload.get("pageContent")
                 )
                 results.append(
                     {
-                        "score": item.score,
+                        "score": item.get("score"),
                         "title": payload.get("title") or meta.get("title"),
                         "text": text,
                         "path": payload.get("path") or meta.get("path"),
                         "source_path": payload.get("source_path"),
                         "source_url": payload.get("source_path")
-                        or meta.get("source_url")
-                        or payload.get("source_url"),
+                                      or meta.get("source_url")
+                                      or payload.get("source_url"),
                         "chunk_id": payload.get("chunk_id", meta.get("chunk_index")),
                         "doc_type": payload.get("doc_type"),
                     }
                 )
             logger.info(
-                "Поиск по документации: '%s' -> %s результатов",
+                "Поиск по документации (hybrid): '%s' -> %s результатов",
                 query,
                 len(results),
             )

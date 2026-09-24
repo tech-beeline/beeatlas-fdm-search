@@ -498,17 +498,21 @@ class BaseQdrantRepository:
             query: str,
             query_filter: Optional[Filter],
             limit: int,
+            apply_dense_score_threshold: bool = True,
     ) -> List[dict]:
         dense_vec = await self._generate_vector_from_text(query)
         prefetch_limit = self._prefetch_limit(limit)
 
-        dense_prefetch = Prefetch(
-            query=dense_vec,
-            using=DENSE_VECTOR_NAME,
-            limit=prefetch_limit,
-            filter=query_filter,
-            score_threshold=settings.SEARCH_MIN_SCORE,
-        )
+        dense_prefetch_kwargs: Dict[str, Any] = {
+            "query": dense_vec,
+            "using": DENSE_VECTOR_NAME,
+            "limit": prefetch_limit,
+            "filter": query_filter,
+        }
+        if apply_dense_score_threshold:
+            dense_prefetch_kwargs["score_threshold"] = settings.SEARCH_MIN_SCORE
+
+        dense_prefetch = Prefetch(**dense_prefetch_kwargs)
         bm25_prefetch = Prefetch(
             query=self._bm25_document(query),
             using=BM25_VECTOR_NAME,
